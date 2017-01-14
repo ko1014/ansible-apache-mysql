@@ -1,0 +1,102 @@
+---
+  # hostsファイルに指定したどのサーバに対して行うのかを指定している(allは全て)
+- hosts: all
+  # sudo権限を付与できる
+  sudo: yes
+  # 変数化できる
+  vars:
+    username: username
+  tasks:
+    - name: add a new user
+      user: name={{username}} 
+
+- hosts: web
+  sudo: yes
+  vars:
+    remi_repo: http://rpms.famillecollet.com/enterprise/remi-release-6.rpm
+  tasks:
+    - name: install apache
+      yum: name=httpd state=latest
+    - name: start apache and enabled
+      service: name=httpd state=started enabled=yes
+    - name: stop iptables and enabled
+      service: name=iptables state=stopped enabled=yes
+    - name: change owner
+      file: dest=/var/www/html owner=vagrant recurse=yes
+    - name: copy index.html
+      copy: src=./index.html dest=/var/www/html/index.html owner=vagrant
+    - name: enablerepo
+      yum: name=epel-release state=latest
+    - name: download remi
+      get_url: url={{remi_repo}} dest=./ owner=vagrant
+    #- name: epeleffect
+    #- command: sudo rpm -ivh ./remi-release-6.rpm
+      #rpm: state=installed file=epel-release-6-8.noarch.rpm
+    - name: install php pachages
+      yum: name={{item}} state=present enablerepo=remi,remi-php70
+      # item変数にそれぞれ実行される(for分のようなもの)
+      with_items:
+        - php 
+        - php-devel
+        - php-gd
+        - php-mbstring
+        - php-mysql
+        - php-pdo
+        - php-pgsql
+        - php-mcrypt
+        - php-xml
+        - php-phpunit-PHPUnit
+        - php-pecl-xdebug
+        - php-imap
+        - php-zip
+        - php-ldap
+      # apache再起動のために行う(そういった何か再起動のために行うもの)
+      notify:
+        - restart apache
+    - name: copy hello.php
+      copy: src=./hello.php dest=/var/www/html/hello.php owner=vagrant
+  # notify時に呼ばれるもの(色々なtasksにnotifyが書いてあっても
+  # ansibleの最後に一度しか呼ばれない
+  handlers:
+    - name: restart apache
+      service: name=httpd state=restarted
+ 
+- hosts: db
+  sudo: yes
+  tasks:
+    - name: install mysql
+      yum: name={{item}} state=latest
+      with_items:
+        - mysql-server
+        - MySQL-python
+    - name: start mysql and enabled
+      service: name=mysqld state=started enabled=yes 
+    - name: create a database
+      mysql_db: name=mydb state=present
+    - name: create a user for mydb
+      mysql_user: name=dbuser password=dbuser priv=mydb.*:ALL state=present
+
+- hosts: db1
+  sudo: yes
+  vars:
+    mysql_repo: http://dev.mysql.com/get/mysql-community-release-el6-5.noarch.rpm 
+  tasks:
+    # mysql install
+    - name: repository install
+      get_url: url={{mysql_repo}} dest=./ owner=vagrant
+    - command: rpm -Uvh mysql-community-release-el6-5.noarch.rpm
+    - name: install mysql
+      yum: name={{item}} state=latest enablerepo=mysql56-community
+      with_items:
+        - mysql-community-server
+        - mysql-community-client
+        - mysql-community-common
+        - mysql-community-devel
+        - mysql-community-libs
+        - MySQL-python 
+      tags: mysql
+
+    # mysqld自動起動設定
+    - name: be sure mysqld is running and enabled
+      service: name=mysqld state=running enabled=yes
+      tags: mysql
